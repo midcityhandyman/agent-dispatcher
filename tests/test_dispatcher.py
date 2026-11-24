@@ -158,3 +158,8 @@ def test_garden_scenario_outcome():
         "T5": "rejected", "T6": "accepted", "T7": "blocked",
     }
     assert "128" in report.record("T4").accepted_output
+
+
+def test_plan_line_counts_are_singular_when_there_is_one(scripted):
+    report = Dispatcher(scripted(plan_of(task("A", ["include: alpha"])))).run("goal")
+    assert report.events[0].detail == "1 task in 1 wave: A"

@@ -23,6 +23,10 @@ class DispatchConfig:
             raise ValueError("max_attempts, max_parallel and max_tasks must be at least 1")
 
 
+def _count(n: int, noun: str) -> str:
+    return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
+
+
 class Dispatcher:
     """Runs a goal to a report.
 
@@ -49,7 +53,7 @@ class Dispatcher:
         waves = plan_waves(tasks)
 
         log: list[tuple[str, str, int, str]] = [
-            ("plan", "", 0, f"{len(tasks)} tasks in {len(waves)} waves: " + ", ".join(t.id for t in tasks))
+            ("plan", "", 0, f"{_count(len(tasks), 'task')} in {_count(len(waves), 'wave')}: " + ", ".join(t.id for t in tasks))
         ]
         records: dict[str, TaskRecord] = {}
 

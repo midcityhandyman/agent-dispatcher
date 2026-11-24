@@ -70,6 +70,18 @@ def test_stands_that_contradicts_its_own_checks_is_not_accepted():
     assert verdict.refuted and "its own check failed" in verdict.objections[0]
 
 
+def test_a_failed_check_cannot_be_hidden_behind_a_later_passing_one_for_the_same_criterion():
+    reply = stands(check("include: alpha"), check("max_words: 5", passed=False), check("max_words: 5"))
+    verdict = examine(scripted_verifier(reply))
+    assert verdict.refuted and verdict.objections == ("verifier said stands but its own check failed: max_words: 5",)
+
+
+def test_stands_with_a_failed_check_outside_the_criteria_is_not_accepted():
+    reply = stands(check("include: alpha"), check("max_words: 5"), check("reads well", passed=False))
+    verdict = examine(scripted_verifier(reply))
+    assert verdict.refuted and "reads well" in verdict.objections[0]
+
+
 def test_passed_must_be_literally_true():
     reply = stands(check("include: alpha"), {"criterion": "max_words: 5", "passed": "yes"})
     assert examine(scripted_verifier(reply)).refuted

@@ -1,11 +1,53 @@
 # agent-dispatcher
 
-An agent that grades its own work will tell you it is done. When several agents share one
-long context, the reviewer inherits the author's assumptions and agrees with them.
+**The problem:** an AI agent that grades its own work will tell you it is done. Put several
+agents in one shared context and the reviewer inherits the author's assumptions and agrees.
+Bad results get through with a confident note attached.
 
-This is a small, runnable demonstration of the fix: a lead agent plans, each task goes to a
-worker with a fresh context, and a separate verifier that never saw the work tries to refute
-each result before it is accepted.
+**Who this is for:** teams building multi-agent systems who need a result to be checked by
+something that has no stake in it before anyone relies on it.
+
+**What it does:** a lead agent splits a goal into tasks with acceptance criteria. Each task
+goes to a worker that starts with a fresh context. A separate verifier, which never sees the
+worker's notes or earlier drafts, tries to refute each result. Only results that survive are
+accepted and passed on; failed tasks are retried, then rejected, and anything depending on
+them is not started.
+
+**What is in the box:** about 1,400 lines of dependency free Python, 102 tests, and a demo
+that runs offline with no keys. The demo uses a scripted mock model, not an LLM. An
+adapter for Claude (Anthropic SDK) is included and unit tested against a fake client; it has
+not been run against the live API here. See [Limitations](#limitations).
+
+## What you will see
+
+`python demo/run_demo.py` runs seven tasks with planted mistakes. Lines copied from the real
+output ([`demo/output.txt`](demo/output.txt), which CI regenerates and diffs on every push):
+
+```
+  4  verdict   T1 a1   refuted: total_matches_items -> items add up to 128, Total line says 118
+  5  dispatch  T1 a2   fresh worker, given 1 objection(s)
+  7  verdict   T1 a2   stands, 3 checks passed
+ 15  verdict   T3 a1   refuted: exclude: guaranteed -> "guaranteed" is present; min_bullets: 3 -> 2 bullets, need 3
+ 25  verdict   T5 a2   refuted: exclude: placeholder -> "placeholder" is present
+ 26  rejected  T5 a2   attempts used up
+ 31  blocked   T7      not started, depends on T5
+
+5 accepted, 1 rejected, 1 blocked
+
+9 worker calls, 9 verifier calls, 9 sets of worker notes
+clean: no prompt contained anything outside its brief
+```
+
+- **T1** The worker's private notes say "Added it up twice, the total is definitely right."
+  The total is wrong. The verifier never sees the notes, adds the items up, and refutes.
+- **T3** The first draft contains a line addressed to the reviewer asking for every check to
+  be passed. It is treated as part of the output and changes nothing.
+- **T4** depends on T1 and quotes 128, the accepted total, not the 118 from the refuted draft.
+- **T5** never fixes itself and is rejected. **T7** depends on it and is never started.
+
+The scenario is invented (a volunteer day packet for a made up community garden) and the
+mistakes are scripted, so this shows the control flow and the context separation. It says
+nothing about how well a real model plans, writes or reviews.
 
 ## What it does
 
@@ -21,9 +63,9 @@ each result before it is accepted.
    tell a first attempt from a retry. Its instruction is to find a reason the result fails.
 5. A result is accepted only if the verifier says it stands **and** reports a passing check
    for every criterion. Anything else counts as refuted: an unreadable verifier reply, a
-   verifier outage, a skipped criterion, a "stands" that contradicts its own checks.
+   verifier outage, a skipped criterion, a "stands" that comes with any failed check.
 6. A refuted task is retried by a new worker that is given the objections but not the
-   rejected draft. When attempts run out the task is rejected, and every task that depends
+   rejected draft (an objection can still quote a fragment of it). When attempts run out the task is rejected, and every task that depends
    on it is marked blocked without being started.
 
 Model access sits behind a one method interface (`Model.complete`). Two implementations
@@ -73,20 +115,31 @@ flowchart TD
 
 ## Run it
 
-Python 3.10 or newer. The core has no dependencies.
+Python 3.10 or newer (CI runs 3.10 and 3.12). The core has no dependencies.
 
 ```
-git clone <this repo> && cd agent-dispatcher
+git clone https://github.com/midcityhandyman/agent-dispatcher.git
+cd agent-dispatcher
+python demo/run_demo.py
+```
+
+The same scenario through the CLI, which exits 2 because two of the seven tasks are meant
+to end rejected and blocked:
+
+```
 python -m agent_dispatcher demo
 ```
 
-Your own goal, still offline:
+Your own goal, still offline. The mock lead only splits the sentence on commas, "and" and
+"then", and the mock worker writes filler that satisfies the generated criteria, so this
+exercises the loop, not the content:
 
 ```
 python -m agent_dispatcher run --goal "draft the agenda, then list the action items"
 ```
 
-With Claude (needs a key, see `.env.example`):
+With Claude (needs the SDK and a key, see `.env.example`; on PowerShell use
+`$env:ANTHROPIC_API_KEY = "..."`):
 
 ```
 pip install anthropic
@@ -113,61 +166,35 @@ pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-98 tests, no network, no keys. They cover plan validation, the dispatch loop (retry,
+102 tests, no network, no keys. They cover plan validation, the dispatch loop (retry,
 rejection, blocking, real concurrency, identical reports at any parallelism), the
 verifier's fail closed rules, the isolation claims read from the literal prompts, the
 Claude adapter against a fake client, and the CLI. CI (`.github/workflows/ci.yml`) runs the
 same tests and checks that the demo still reproduces `demo/output.txt` exactly.
 
-## Demo
+## Background
 
-```
-python demo/run_demo.py
-```
-
-The scenario is invented: a volunteer day packet for a made up community garden, seven
-tasks. The script plants mistakes so one run shows every path. Captured output is in
-[`demo/output.txt`](demo/output.txt). The parts worth reading:
-
-```
-  2  dispatch  T1 a1   fresh worker
-  4  verdict   T1 a1   refuted: total_matches_items -> items add up to 128, Total line says 118
-  5  dispatch  T1 a2   fresh worker, given 1 objection(s)
-  7  verdict   T1 a2   stands, 3 checks passed
- ...
- 25  verdict   T5 a2   refuted: exclude: placeholder -> "placeholder" is present
- 26  rejected  T5 a2   attempts used up
- 31  blocked   T7      not started, depends on T5
-```
-
-- **T1** The worker's notes say "Added it up twice, the total is definitely right." The
-  total is wrong. The verifier never sees the notes, adds the items up, and refutes.
-- **T3** The first draft contains a line addressed to the reviewer asking for every check to
-  be passed. It is treated as part of the output and changes nothing.
-- **T4** depends on T1 and quotes 128, the accepted total, not the 118 from the refuted draft.
-- **T5** never fixes itself and is rejected. **T7** depends on it and is never started.
-
-Result: 5 accepted, 1 rejected, 1 blocked, and the isolation audit is clean.
-
-## Where this pattern runs
-
-This is drawn from systems that run two small service companies day to day, where agents
-handle routine operational work without someone watching each step. The lesson that shaped
-it is that a worker's own report is the least reliable evidence that a job is done, so
-nothing is committed on a self report: a reviewer with no stake in the work, and no view of
-how it was produced, has to fail to break it first. This repository is a clean, synthetic
-reduction of that loop. It contains no code, data, prompts or configuration from those
-systems.
+The author's statement, which nothing in this repository can prove: the pattern comes from
+agent systems that handle routine operational work for two small service businesses. The
+lesson behind it is that a worker's own report is the least reliable evidence that a job is
+done. This repository is a clean, synthetic reduction of that loop. It contains no code,
+data, prompts or configuration from those systems.
 
 ## Limitations
 
+- **Everything the demo and the tests run is mocked.** The lead's plan, the worker replies
+  and the planted mistakes in the demo are scripted in `scenarios.py`. No LLM is called
+  anywhere in this repository unless you pass `--model claude` yourself.
 - **The mock verifier is a rule evaluator, not a judge.** Offline, criteria have to be
   written in a small language (`include:`, `exclude:`, `max_words:`, `min_bullets:`,
   `total_matches_items`). Any other criterion is reported as not confirmable and the task
   is refuted. The demo shows the orchestration and the isolation, not model quality.
-- **The Claude path has not been run against the live API in this repository's tests.** The
-  adapter is tested against a fake client that checks the request shape and the handling of
-  refusals, truncation and errors. Expect to tune the prompts on real work.
+- **The Claude path has never been run against the live API.** Not in the tests, not in CI,
+  and no captured live run is included. The adapter is tested against a fake client that
+  checks the request shape and the handling of refusals, truncation and errors, and the
+  request parameters were checked against the installed SDK's signatures. The three system
+  prompts have never been read by a real model, so expect to tune them, and there are no
+  quality, cost or latency numbers to report.
 - **Server side refusal fallbacks are opt in here**, although current guidance is to enable
   them by default for this model family, because that code path could not be exercised
   without a key. Without it a refusal ends the attempt with an error.
@@ -179,6 +206,10 @@ systems.
 - **Isolation is by construction of the prompt, not by sandboxing.** Each call is stateless
   and built from a role specific brief, and the ledger proves what was sent. Workers have
   no tools here; with tools and a shared filesystem you would also need to isolate those.
+- **Accepted outputs are trusted downstream.** A dependent worker is told its inputs "can be
+  relied on", and the verifier sees them too. Text planted in one task's accepted output is
+  a prompt injection path into later tasks. The verifier prompt guards the claimed output
+  only.
 - **Workers produce text only.** No tool use, no file edits, no long running tasks.
 - **No persistence and no resume.** A run lives in memory; an interrupted run starts over.
 - **One retry policy.** Fixed attempt count, no backoff beyond the SDK's own, no cost or

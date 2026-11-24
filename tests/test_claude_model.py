@@ -106,6 +106,12 @@ def test_client_exceptions_become_model_errors():
         ClaudeModel(client=FakeClient(error=RuntimeError("boom"))).complete(REQUEST)
 
 
+def test_missing_credentials_are_named_plainly():
+    error = TypeError('"Could not resolve authentication method. Expected one of api_key, auth_token"')
+    with pytest.raises(ModelError, match="no API credentials found; set ANTHROPIC_API_KEY"):
+        ClaudeModel(client=FakeClient(error=error)).complete(REQUEST)
+
+
 def test_both_implementations_satisfy_the_interface():
     assert isinstance(ClaudeModel(client=FakeClient()), Model)
     assert isinstance(MockModel(), Model)

@@ -196,14 +196,13 @@ class Verifier:
             return refuted(f"verifier gave no usable verdict ({verdict!r})", checks=checks)
 
         # The verifier says it stands. Hold it to its own evidence before believing that.
-        by_criterion = {_norm(c.criterion): c for c in checks}
-        problems = []
-        for criterion in task.criteria:
-            check = by_criterion.get(_norm(criterion))
-            if check is None:
-                problems.append(f"verifier did not check: {criterion}")
-            elif not check.passed:
-                problems.append(f"verifier said stands but its own check failed: {criterion}")
+        # Every failed check counts, including a duplicate entry for a criterion that also
+        # has a passing one, and a check for something that is not a criterion at all.
+        checked = {_norm(c.criterion) for c in checks}
+        problems = [f"verifier did not check: {c}" for c in task.criteria if _norm(c) not in checked]
+        problems += [
+            f"verifier said stands but its own check failed: {c.criterion}" for c in checks if not c.passed
+        ]
         if problems:
             return refuted(*problems, checks=checks)
         return Verdict(task.id, attempt, False, (), checks)

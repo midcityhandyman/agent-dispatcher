@@ -94,6 +94,8 @@ class ClaudeModel:
 
 def _describe(exc: Exception) -> str:
     """Name the failure class without depending on the SDK being importable."""
+    if "Could not resolve authentication method" in str(exc):
+        return "no API credentials found; set ANTHROPIC_API_KEY (see .env.example)"
     try:
         import anthropic
     except ImportError:
